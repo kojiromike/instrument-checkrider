@@ -1,0 +1,130 @@
+#
+# pyproject.toml is a configuration file used by packaging tools,
+# as well as other tools such as linters, type checkers, etc.
+# See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
+# Also see https://toml.io/en/
+#
+
+# The build-system declares which build backend
+# to use and which other dependencies are needed
+# to build this project.
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+[dependency-groups]
+dev = [
+  "lxml-stubs>=0.5.1",
+  "mypy>=1.14.1",
+  "pandas-stubs>=2.2.3.241126",
+  "pytest>=8.3.4",
+  "pytest-cov>=6.0.0",
+  "types-beautifulsoup4>=4.12.0.20241020",
+  "types-jsonschema>=4.23.0.20241208",
+  "types-markdown>=3.7.0.20241204",
+  "types-pillow>=10.2.0.20240822",
+  "types-protobuf>=5.29.1.20241207",
+  "types-psutil>=6.1.0.20241221",
+  "types-pygments>=2.18.0.20240506",
+  "types-pyyaml>=6.0.12.20241230",
+  "types-regex>=2024.11.6.20241221",
+  "types-requests>=2.32.0.20241016",
+  "types-tqdm>=4.67.0.20241221",
+  "types-tree-sitter>=0.20.1.20240311",
+  "types-tree-sitter-languages>=1.10.0.20240612",
+  "types-xmltodict>=0.14.0.20241009"
+]
+
+[project]
+dependencies = [
+  "langchain-community>=0.3.13",
+  "langchain>=0.0.27",
+  "requests>=2.31.0",
+  "platformdirs>=4.3.6",
+  "pypdf>=5.1.0",
+  "unstructured>=0.16.11",
+  "pinecone>=5.4.2",
+  "python-decouple>=3.8",
+  "anthropic>=0.42.0",
+  "voyageai>=0.3.2"
+]
+description = "Add your description here"
+name = "vectorize-checkride"
+readme = "README.md"
+requires-python = ">=3.12.0"
+version = "0.1.0"
+
+# Autoflake removes unused imports and unused variables from Python code.
+# It is run by pre-commit.
+# See https://github.com/PyCQA/autoflake
+[tool.autoflake]
+expand-star-imports = true
+recursive = true
+remove-all-unused-imports = true
+remove-duplicate-keys = true
+remove-unused-variables = true
+
+# Black automatically formats our code.
+# It is run by pre-commit.
+# See https://black.readthedocs.io/en/stable/
+[tool.black]
+line-length = 88  # same as pylint below
+
+# Coverage.py determines our code coverage.
+# It is run by the pytest-cov plugin.
+# See https://coverage.readthedocs.io/en/latest/
+# See https://pytest-cov.readthedocs.io/en/latest/
+[tool.coverage]
+
+[tool.coverage.report]
+omit = [
+  "src/smitty/faa_loader/__main__.py"
+]
+
+[tool.hatch]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/smitty"]
+
+# isort sorts and formats import statements
+# It is run by pre-commit.
+# See https://pycqa.github.io/isort/
+[tool.isort]
+profile = "black"
+
+# mypy is a static type checker
+# It is run by Github Actions workflows.
+# You should also run it locally during development.
+# See https://mypy.readthedocs.io/en/stable/
+[tool.mypy]
+check_untyped_defs = true
+ignore_missing_imports = true
+packages = ["smitty.faa_loader"]
+strict = true
+
+# Pylint is a static code analyzer.
+# It is run by pre-commit.
+# See https://pylint.readthedocs.io/en/stable/
+[tool.pylint]
+max-line-length = 88  # same as black above
+
+[tool.pylint.main]
+load-plugins = "pylint_actions"
+
+# Pytest adds additional test discovery
+# and configuration features to Python's
+# built-in unittest framework.
+# It is run by Github Actions workflows.
+# You should also run it locally during development.
+# See https://docs.pytest.org/en/stable/
+[tool.pytest]
+
+[tool.pytest.ini_options]
+filterwarnings = ["once"]
+log_cli = true
+log_cli_level = "INFO"
+
+# vulture looks for dead code
+[tool.vulture]
+min_confidence = 100
+paths = ["src", "tests"]
