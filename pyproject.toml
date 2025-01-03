@@ -46,7 +46,9 @@ dependencies = [
   "pinecone>=5.4.2",
   "python-decouple>=3.8",
   "anthropic>=0.42.0",
-  "voyageai>=0.3.2"
+  "voyageai>=0.3.2",
+  "tqdm>=4.67.1",
+  "more-itertools>=10.5.0"
 ]
 description = "Add your description here"
 name = "vectorize-checkride"

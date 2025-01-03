@@ -7,57 +7,14 @@ from typing import TypedDict
 from urllib.parse import parse_qs, urlparse
 
 import requests
-import voyageai
-from anthropic import Anthropic
-from decouple import config
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.document_loaders import UnstructuredXMLLoader as XMLLoader
 from langchain_core.documents.base import Document
-from pinecone import Pinecone, ServerlessSpec
-from pinecone.core.openapi.shared.exceptions import PineconeApiException
-from platformdirs import user_cache_dir
+from more_itertools import batched
+from tqdm import tqdm
 
 from .data import SOURCES
-
-ANTHROPIC_API_KEY = config("ANTHROPIC_API_KEY")
-PINECONE_API_KEY = config("PINECONE_API_KEY")
-VOYAGE_API_KEY = config("VOYAGE_API_KEY")
-
-CACHE_DIR = Path(user_cache_dir(__package__))
-(CACHE_DIR / "loaders").mkdir(parents=True, exist_ok=True)
-(CACHE_DIR / "vectors").mkdir(parents=True, exist_ok=True)
-
-SPLITTER = RecursiveCharacterTextSplitter(
-    chunk_size=512,
-    chunk_overlap=50,
-    separators=[
-        "\n\n",
-        "\n",
-        " ",
-        "",
-    ],
-)
-
-VOYAGE = voyageai.Client(api_key=VOYAGE_API_KEY)
-# https://docs.voyageai.com/docs/embeddings#model-choices
-VOYAGE_MODEL = "voyage-3-large"
-VOYAGE_DIMENSIONS = 1024
-
-ANTHROPIC = Anthropic(api_key=ANTHROPIC_API_KEY)
-pc = Pinecone(api_key=PINECONE_API_KEY)
-INDEX_NAME = "instrument-checkride-knowledge"
-try:
-    pc.create_index(
-        name=INDEX_NAME,
-        dimension=VOYAGE_DIMENSIONS,
-        metric="cosine",  # Replace with your model metric
-        spec=ServerlessSpec(cloud="aws", region="us-east-1"),
-    )
-except PineconeApiException as e:
-    if e.status != 409:
-        raise
-INDEX = pc.Index(INDEX_NAME)
+from .util import CACHE_DIR, INDEX, SPLITTER, VOYAGE, VOYAGE_MODEL
 
 
 def make_filename(url: str) -> str:
@@ -136,9 +93,12 @@ Vector = list[list[float]] | list[list[int]]
 
 
 # Store with metadata
-def create_embeddings(chunks: Iterable[Document]) -> Vector:
+def create_embeddings(chunks: Iterable[Document]) -> Vector | None:
+    content = [chunk.page_content for chunk in chunks]
+    if not content:
+        return None
     return VOYAGE.embed(
-        [chunk.page_content for chunk in chunks],
+        content,
         model=VOYAGE_MODEL,
         input_type="document",
     ).embeddings
@@ -150,21 +110,33 @@ class VectorMapping(TypedDict):
     metadata: Mapping[str, object]
 
 
+def getpage(ch):
+    try:
+        return ch.metadata["page"]
+    except KeyError:
+        return None
+
+
 def map_vectors(
     ref: str, chunks: Iterable[Document]
 ) -> Generator[VectorMapping, None, None]:
     print(f"creating vectors for {ref}")
     file = downloads[ref]
-    page_groups = groupby(chunks, key=lambda ch: ch.metadata["page"])
-    try:
+    page_groups = list(groupby(chunks, key=getpage))
+    last_page = page_groups[-1][0]
+    with tqdm(total=last_page) as progress_bar:
         for page, group in page_groups:
             id_ = f"{ref}-{page}"
             cache_file = file.parent / f"vectors/{file.stem}-{page}{file.suffix}"
             if cache_file.exists():
-                print(f"found cached vectors for {ref} page {page}")
-                yield pickle.loads(cache_file.read_bytes())
+                # print(f"found cached vectors for {ref} page {page}")
+                results = pickle.loads(cache_file.read_bytes())
+                yield results
             else:
+                # print(f"creating new vectors for {ref} page {page}")
                 vectors = create_embeddings(group)
+                if not vectors:
+                    continue
                 result = VectorMapping(
                     id=id_,
                     values=vectors,
@@ -175,32 +147,21 @@ def map_vectors(
                 )
                 cache_file.write_bytes(pickle.dumps(result))
                 yield result
-    except KeyError:
-        raise
+            progress_bar.update(1)
+        progress_bar.update(1)
 
 
-vectors = list(
-    chain.from_iterable(map_vectors(ref, chunks) for ref, chunks in split_docs.items())
+vector_chain = chain.from_iterable(
+    map_vectors(ref, chunks) for ref, chunks in split_docs.items()
 )
-
-# INDEX.upsert(vectors=vectors)
-# metadata = {"ref": ref}
-#   for i, chunk in enumerate(chunks):
-#       metadata["page"] = chunk.metadata["page"]
-#       vectors = create_embedding(chunk)
-#       INDEX.upsert([(str(i), vectors, metadata)])
-
-
-# def query_knowledge_base(query, acs_section=None):
-#     query_vector = embeddings.embed_query(query)
-#
-#     filter = {}
-#     if acs_section:
-#         filter["acs_reference"] = acs_section
-#
-#     results = index.query(
-#         query_vector,
-#         filter=filter,
-#         top_k=3
-#     )
-#     return process_results(results)
+vectors = [
+    {**v, "values": embedding} for v in vector_chain for embedding in v["values"]
+]
+num_batches = 20
+batch_size, last_batch_size = divmod(len(vectors), num_batches)
+print("uploading batches")
+batches = batched(vectors, batch_size)
+with tqdm(total=num_batches) as progress_bar:
+    for batch in batches:
+        INDEX.upsert(vectors=batch)
+        progress_bar.update(batch_size)
